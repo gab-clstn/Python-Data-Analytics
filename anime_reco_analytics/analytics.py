@@ -2,7 +2,6 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-import matplotlib.patches as mpatches
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
@@ -12,20 +11,12 @@ import numpy as np
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-PALETTE = ["#FF6B9D", "#C44BFF", "#4BAAFF", "#FFD93D", "#6BCB77", "#FF6B35", "#00D9C0", "#FF4757"]
+PALETTE    = ["#FF6B9D", "#C44BFF", "#4BAAFF", "#FFD93D", "#6BCB77",
+              "#FF6B35", "#00D9C0", "#FF4757", "#A29BFE", "#FD79A8"]
 BG_COLOR   = "#0D0D1A"
 CARD_COLOR = "#161628"
 GRID_COLOR = "#252540"
 TEXT_COLOR = "#F0F0FF"
-
-TYPE_COLORS = {
-    "Normal":   "#A8A878", "Fire":     "#F08030", "Water":    "#6890F0",
-    "Electric": "#F8D030", "Grass":    "#78C850", "Ice":      "#98D8D8",
-    "Fighting": "#C03028", "Poison":   "#A040A0", "Ground":   "#E0C068",
-    "Flying":   "#A890F0", "Psychic":  "#F85888", "Bug":      "#A8B820",
-    "Rock":     "#B8A038", "Ghost":    "#705898", "Dragon":   "#7038F8",
-    "Dark":     "#705848", "Steel":    "#B8B8D0", "Fairy":    "#EE99AC",
-}
 
 plt.rcParams.update({
     "figure.dpi": 150,
@@ -40,7 +31,7 @@ plt.rcParams.update({
     "axes.spines.left": False,
     "axes.spines.bottom": False,
     "font.family": "DejaVu Sans",
-    "axes.titlesize": 14,
+    "axes.titlesize": 13,
     "axes.titleweight": "bold",
     "axes.titlecolor": TEXT_COLOR,
     "axes.labelsize": 11,
@@ -57,221 +48,301 @@ plt.rcParams.update({
 # LOAD & CLEAN DATA
 # -------------------------
 df = pd.read_csv("dataset.csv")
-df["Name"]  = df["Name"].str.strip().str.title()
-df["Type1"] = df["Type1"].str.strip().str.title()
-df["Type2"] = df["Type2"].str.strip().str.title()
+df["Release_Date"] = pd.to_datetime(df["Release_Date"], errors="coerce")
+df["Year"]         = df["Release_Date"].dt.year
+df_rev = df[df["Total_Reviews"] >= 100].copy()
 
-# Separate dual-type only (no None)
-df_dual = df.dropna(subset=["Type2"]).copy()
+bins   = [0, 40, 60, 70, 80, 90, 95, 100]
+labels = ["Overwhelm. Neg", "Mostly Neg", "Mixed",
+          "Mostly Pos", "Very Pos", "Overwhelm. Pos", "Perfect"]
+df_rev["score_cat"] = pd.cut(df_rev["Review_Score_Pct"], bins=bins, labels=labels)
 
-print(f"Loaded {len(df):,} Pokemon records ({len(df_dual):,} dual-type).")
+def best_game(subset, name_len=30):
+    if subset.empty:
+        return None, None, None
+    row  = subset.sort_values(["Review_Score_Pct", "Total_Reviews"],
+                               ascending=[False, False]).iloc[0]
+    name = row["Name"]
+    name = (name[:name_len - 3] + "...") if len(name) > name_len else name
+    return name, int(row["Review_Score_Pct"]), int(row["Total_Reviews"])
 
-# -------------------------
-# GRAPH 1: Type 1 Distribution
-# -------------------------
-type1_counts = df["Type1"].value_counts()
-colors = [TYPE_COLORS.get(t, "#888888") for t in type1_counts.index]
-
-fig, ax = plt.subplots(figsize=(13, 6))
-fig.patch.set_facecolor(BG_COLOR)
-bars = ax.bar(type1_counts.index, type1_counts.values, color=colors, edgecolor="none", width=0.7)
-ax.set_title("Primary Type Distribution", pad=15)
-ax.set_xlabel("Type", labelpad=10)
-ax.set_ylabel("Count", labelpad=10)
-ax.tick_params(axis="x", rotation=45)
-
-for bar, val, color in zip(bars, type1_counts.values, colors):
-    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
-            str(val), ha="center", va="bottom", fontsize=8,
-            fontweight="bold", color=color)
-
-plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "type1_distribution.png"), facecolor=BG_COLOR)
-plt.close()
-print("Saved: type1_distribution.png")
+print(f"Loaded {len(df):,} games | {len(df_rev):,} with 100+ reviews")
 
 # -------------------------
-# GRAPH 2: Dual-Type Heatmap (no None)
+# GRAPH 1: Top 15 Games by Review Score
 # -------------------------
-all_types = sorted(TYPE_COLORS.keys())
-matrix = pd.DataFrame(0, index=all_types, columns=all_types)
-
-for _, row in df_dual.iterrows():
-    t1, t2 = row["Type1"], row["Type2"]
-    if t1 in all_types and t2 in all_types:
-        matrix.loc[t1, t2] += 1
-
-fig, ax = plt.subplots(figsize=(13, 11))
-fig.patch.set_facecolor(BG_COLOR)
-ax.set_facecolor(BG_COLOR)
-
-cmap = LinearSegmentedColormap.from_list("poke", ["#161628", "#C44BFF", "#FF6B9D"])
-im = ax.imshow(matrix.values, cmap=cmap, aspect="auto")
-
-ax.set_xticks(range(len(all_types)))
-ax.set_yticks(range(len(all_types)))
-ax.set_xticklabels(all_types, rotation=45, ha="right", fontsize=9)
-ax.set_yticklabels(all_types, fontsize=9)
-ax.set_title("Dual-Type Combination Heatmap", pad=15)
-ax.set_xlabel("Type 2", labelpad=10)
-ax.set_ylabel("Type 1", labelpad=10)
-
-for i in range(len(all_types)):
-    for j in range(len(all_types)):
-        val = matrix.values[i, j]
-        if val > 0:
-            ax.text(j, i, str(val), ha="center", va="center",
-                    fontsize=7, color="white", fontweight="bold")
-
-cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
-cbar.ax.yaxis.set_tick_params(color=TEXT_COLOR)
-plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_COLOR)
-
-plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "dual_type_heatmap.png"), facecolor=BG_COLOR)
-plt.close()
-print("Saved: dual_type_heatmap.png")
-
-# -------------------------
-# GRAPH 3: Top 15 Dual-Type Combos with Pokemon names
-# -------------------------
-df_dual["type_combo"] = df_dual["Type1"] + " / " + df_dual["Type2"]
-combo_counts = df_dual["type_combo"].value_counts().head(15)
-
-# Get up to 3 example Pokemon names per combo
-def get_examples(combo, n=3):
-    t1, t2 = combo.split(" / ")
-    names = df_dual[(df_dual["Type1"] == t1) & (df_dual["Type2"] == t2)]["Name"].tolist()
-    sample = names[:n]
-    label = ", ".join(sample)
-    if len(names) > n:
-        label += f" +{len(names) - n} more"
-    return label
-
-example_labels = [get_examples(c) for c in combo_counts.index]
-bar_colors = [PALETTE[i % len(PALETTE)] for i in range(len(combo_counts))]
+top_games  = (df_rev
+              .sort_values(["Review_Score_Pct", "Total_Reviews"], ascending=[False, False])
+              .head(15))
+best_name, best_score, _ = best_game(df_rev)
 
 fig, ax = plt.subplots(figsize=(14, 8))
 fig.patch.set_facecolor(BG_COLOR)
-bars = ax.barh(combo_counts.index, combo_counts.values,
-               color=bar_colors, edgecolor="none", height=0.65)
-ax.set_title("Top 15 Dual-Type Combinations (no single-type)", pad=15)
-ax.set_xlabel("Count", labelpad=10)
+bar_colors = [PALETTE[i % len(PALETTE)] for i in range(len(top_games))]
+bars = ax.barh(top_games["Name"].str[:40], top_games["Review_Score_Pct"],
+               color=bar_colors, edgecolor="none", height=0.6)
+ax.set_title(f"Top 15 Games by Positive Review %  —  Overall Best: {best_name} ({best_score}%)", pad=15)
+ax.set_xlabel("Positive Review %", labelpad=10)
+# extra right space so labels don't clip
+ax.set_xlim(0, 140)
 ax.invert_yaxis()
 
-# Set x limit with room for labels
-ax.set_xlim(0, combo_counts.values.max() + 14)
-
-for bar, val, color, examples in zip(bars, combo_counts.values, bar_colors, example_labels):
-    # Count on the right of bar
-    ax.text(bar.get_width() + 0.4, bar.get_y() + bar.get_height() / 2,
-            f"{val}  |  {examples}",
-            va="center", ha="left", fontsize=8,
-            color=TEXT_COLOR)
+for bar, score, reviews, color in zip(bars, top_games["Review_Score_Pct"],
+                                       top_games["Total_Reviews"], bar_colors):
+    ax.text(bar.get_width() + 1,
+            bar.get_y() + bar.get_height() / 2,
+            f"{score}%  |  {int(reviews):,} reviews",
+            va="center", ha="left", fontsize=8, color=color)
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "top_type_combos.png"), facecolor=BG_COLOR)
+plt.savefig(os.path.join(OUTPUT_DIR, "top_games_reviews.png"), facecolor=BG_COLOR)
 plt.close()
-print("Saved: top_type_combos.png")
+print("Saved: top_games_reviews.png")
 
 # -------------------------
-# GRAPH 4: Evolution Coverage Pie
+# GRAPH 2: Price Distribution
 # -------------------------
-has_evolution = df["Evolution"].notna().sum()
-no_evolution  = df["Evolution"].isna().sum()
-evo_labels    = ["Has Evolution", "Final / No Evolution"]
-evo_values    = [has_evolution, no_evolution]
-evo_colors    = ["#C44BFF", "#FF6B9D"]
-
-fig, ax = plt.subplots(figsize=(8, 8))
-fig.patch.set_facecolor(BG_COLOR)
-ax.set_facecolor(BG_COLOR)
-
-wedges, texts, autotexts = ax.pie(
-    evo_values,
-    labels=evo_labels,
-    autopct="%1.1f%%",
-    colors=evo_colors,
-    startangle=140,
-    pctdistance=0.78,
-    wedgeprops=dict(edgecolor=BG_COLOR, linewidth=3),
-    textprops=dict(color=TEXT_COLOR, fontsize=12),
-)
-for at in autotexts:
-    at.set_fontsize(11)
-    at.set_fontweight("bold")
-    at.set_color(BG_COLOR)
-
-ax.set_title("Evolution Coverage", pad=20, color=TEXT_COLOR)
-plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "evolution_coverage.png"), facecolor=BG_COLOR)
-plt.close()
-print("Saved: evolution_coverage.png")
-
-# -------------------------
-# GRAPH 5: Single-type vs Dual-type per Type1
-# -------------------------
-df["is_dual"] = df["Type2"].notna()
-dual_breakdown = df.groupby("Type1")["is_dual"].agg(
-    Dual=lambda x: x.sum(),
-    Single=lambda x: (~x).sum()
-).reindex(type1_counts.index)
-
-fig, ax = plt.subplots(figsize=(13, 6))
-fig.patch.set_facecolor(BG_COLOR)
-
-x = np.arange(len(dual_breakdown))
-w = 0.4
-ax.bar(x - w/2, dual_breakdown["Single"], width=w, label="Single-type",
-       color="#4BAAFF", edgecolor="none")
-ax.bar(x + w/2, dual_breakdown["Dual"],   width=w, label="Dual-type",
-       color="#FF6B9D", edgecolor="none")
-
-ax.set_title("Single-type vs Dual-type per Primary Type", pad=15)
-ax.set_xlabel("Type 1", labelpad=10)
-ax.set_ylabel("Count", labelpad=10)
-ax.set_xticks(x)
-ax.set_xticklabels(dual_breakdown.index, rotation=45, ha="right", fontsize=9)
-ax.legend()
-
-plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "single_vs_dual.png"), facecolor=BG_COLOR)
-plt.close()
-print("Saved: single_vs_dual.png")
-
-# -------------------------
-# GRAPH 6: Rarest Types (bottom 5) with example Pokemon
-# -------------------------
-rare_types  = type1_counts.tail(5)
-rare_colors = [TYPE_COLORS.get(t, "#888888") for t in rare_types.index]
-
-# Get up to 4 example names per rare type
-def rare_examples(type_name, n=4):
-    names = df[df["Type1"] == type_name]["Name"].tolist()
-    sample = names[:n]
-    label = ", ".join(sample)
-    if len(names) > n:
-        label += f" +{len(names) - n} more"
-    return label
+df_paid = df[df["Price_USD"] > 0].copy()
 
 fig, ax = plt.subplots(figsize=(12, 5))
 fig.patch.set_facecolor(BG_COLOR)
-bars = ax.barh(rare_types.index, rare_types.values,
-               color=rare_colors, edgecolor="none", height=0.55)
-ax.set_title("5 Rarest Primary Types", pad=15)
-ax.set_xlabel("Count", labelpad=10)
-ax.invert_yaxis()
-ax.set_xlim(0, rare_types.values.max() + 20)
+n, bins_p, patches = ax.hist(df_paid["Price_USD"], bins=35, edgecolor="none")
+cmap = LinearSegmentedColormap.from_list("steam", ["#4BAAFF", "#C44BFF", "#FF6B9D"])
+norm_vals = (bins_p[:-1] - bins_p[:-1].min()) / (bins_p[:-1].max() - bins_p[:-1].min() + 1e-9)
+for patch, nv in zip(patches, norm_vals):
+    patch.set_facecolor(cmap(nv))
 
-for bar, val, color, t in zip(bars, rare_types.values, rare_colors, rare_types.index):
-    examples = rare_examples(t)
-    ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height() / 2,
-            f"{val}  |  {examples}",
-            va="center", ha="left", fontsize=8.5, color=TEXT_COLOR)
+median_p = df_paid["Price_USD"].median()
+ax.axvline(median_p, color="#FFD93D", linewidth=1.8, linestyle="--")
+ax.text(median_p + 0.5, ax.get_ylim()[1] * 0.88,
+        f"Median ${median_p:.2f}", color="#FFD93D", fontsize=9)
+
+ax.set_title(
+    f"Price Distribution — {len(df_paid):,} Paid Games  |  {(df['Price_USD']==0).sum()} Free-to-Play",
+    pad=15)
+ax.set_xlabel("Price (USD)", labelpad=10)
+ax.set_ylabel("Number of Games", labelpad=10)
+ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:.0f}"))
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "price_distribution.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: price_distribution.png")
+
+# -------------------------
+# GRAPH 3: Top 15 Genres
+# — count label on top, best game label BELOW count with a small gap
+# -------------------------
+genre_counts = df["Primary_Genre"].value_counts().head(15)
+
+def top_game_for_genre(genre):
+    subset = df_rev[df_rev["Primary_Genre"] == genre]
+    name, score, _ = best_game(subset, name_len=22)
+    if name is None:
+        return ""
+    return f"{name}  {score}%"
+
+top_labels = [top_game_for_genre(g) for g in genre_counts.index]
+bar_colors  = [PALETTE[i % len(PALETTE)] for i in range(len(genre_counts))]
+max_h       = genre_counts.max()
+
+fig, ax = plt.subplots(figsize=(14, 7))
+fig.patch.set_facecolor(BG_COLOR)
+# Extra top space so labels above bars don't clip
+ax.set_ylim(0, max_h * 1.28)
+genre_counts.plot(kind="bar", ax=ax, color=bar_colors, edgecolor="none", width=0.7)
+ax.set_title("Top 15 Primary Genres  (best-reviewed game shown above bar)", pad=15)
+ax.set_xlabel("Genre", labelpad=10)
+ax.set_ylabel("Number of Games", labelpad=10)
+ax.tick_params(axis="x", rotation=35)
+
+for p, color, label in zip(ax.patches, bar_colors, top_labels):
+    h = p.get_height()
+    cx = p.get_x() + p.get_width() / 2
+    # count label directly above bar
+    ax.text(cx, h + max_h * 0.01,
+            f"{int(h):,}",
+            ha="center", va="bottom", fontsize=9, fontweight="bold", color=color)
+    # best game label above count, smaller, no rotation
+    if label:
+        ax.text(cx, h + max_h * 0.06,
+                label,
+                ha="center", va="bottom", fontsize=6.5, color=TEXT_COLOR,
+                rotation=40)
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "rarest_types.png"), facecolor=BG_COLOR)
+plt.savefig(os.path.join(OUTPUT_DIR, "top_genres.png"), facecolor=BG_COLOR)
 plt.close()
-print("Saved: rarest_types.png")
+print("Saved: top_genres.png")
+
+# -------------------------
+# GRAPH 4: Top 15 Community Tags  +  Multiplayer callout
+# -------------------------
+tags_split = df["All_Tags"].dropna().str.split(";")
+all_tags   = [t.strip() for sub in tags_split for t in sub if t.strip()]
+tag_counts = pd.Series(all_tags).value_counts().head(15)
+bar_colors = [PALETTE[i % len(PALETTE)] for i in range(len(tag_counts))]
+max_h      = tag_counts.max()
+
+multi_mask  = df_rev["All_Tags"].fillna("").str.contains("Multiplayer", case=False, regex=False)
+multi_name, multi_score, multi_reviews = best_game(df_rev[multi_mask], name_len=28)
+
+fig, ax = plt.subplots(figsize=(14, 7))
+fig.patch.set_facecolor(BG_COLOR)
+ax.set_ylim(0, max_h * 1.22)
+tag_counts.plot(kind="bar", ax=ax, color=bar_colors, edgecolor="none", width=0.7)
+ax.set_title(
+    f"Top 15 Community Tags  —  Top Multiplayer: {multi_name} ({multi_score}%)",
+    pad=15)
+ax.set_xlabel("Tag", labelpad=10)
+ax.set_ylabel("Number of Games", labelpad=10)
+ax.tick_params(axis="x", rotation=35)
+
+for p, color in zip(ax.patches, bar_colors):
+    ax.text(p.get_x() + p.get_width() / 2, p.get_height() + max_h * 0.01,
+            f"{int(p.get_height()):,}",
+            ha="center", va="bottom", fontsize=9, fontweight="bold", color=color)
+
+# Arrow callout on Multiplayer bar — positioned well above count label
+if "Multiplayer" in tag_counts.index:
+    idx = list(tag_counts.index).index("Multiplayer")
+    bar = ax.patches[idx]
+    bh  = bar.get_height()
+    bx  = bar.get_x() + bar.get_width() / 2
+    ax.annotate(
+        f"Top: {multi_name}",
+        xy=(bx, bh + max_h * 0.02),
+        xytext=(bx, bh + max_h * 0.14),
+        ha="center", va="bottom", fontsize=7.5, color="#FFD93D",
+        arrowprops=dict(arrowstyle="->", color="#FFD93D", lw=1.2))
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "top_tags.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: top_tags.png")
+
+# -------------------------
+# GRAPH 5: Review Score Category Breakdown
+# -------------------------
+cat_counts   = df_rev["score_cat"].value_counts().reindex(labels)
+score_colors = ["#FF4757","#FF6B35","#FFD93D","#6BCB77","#4BAAFF","#C44BFF","#FF6B9D"]
+
+fig, ax = plt.subplots(figsize=(12, 5))
+fig.patch.set_facecolor(BG_COLOR)
+ax.set_ylim(0, cat_counts.max() * 1.18)
+bars = ax.bar(cat_counts.index, cat_counts.values,
+              color=score_colors, edgecolor="none", width=0.65)
+ax.set_title(f"Review Score Breakdown — {len(df_rev):,} Games with 100+ Reviews", pad=15)
+ax.set_xlabel("Review Category", labelpad=10)
+ax.set_ylabel("Number of Games", labelpad=10)
+ax.tick_params(axis="x", rotation=25)
+
+for bar, val, color in zip(bars, cat_counts.values, score_colors):
+    if pd.notna(val):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 3,
+                f"{int(val)}", ha="center", va="bottom",
+                fontsize=9, fontweight="bold", color=color)
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "review_score_breakdown.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: review_score_breakdown.png")
+
+# -------------------------
+# GRAPH 6: Top 15 Games by Estimated Owners
+# -------------------------
+top_owners = df[df["Estimated_Owners"] > 0].nlargest(15, "Estimated_Owners")
+bar_colors  = [PALETTE[i % len(PALETTE)] for i in range(len(top_owners))]
+max_val     = top_owners["Estimated_Owners"].max() / 1_000_000
+
+fig, ax = plt.subplots(figsize=(14, 8))
+fig.patch.set_facecolor(BG_COLOR)
+bars = ax.barh(top_owners["Name"].str[:40], top_owners["Estimated_Owners"] / 1_000_000,
+               color=bar_colors, edgecolor="none", height=0.6)
+ax.set_title("Top 15 Games by Estimated Owners", pad=15)
+ax.set_xlabel("Estimated Owners (Millions)", labelpad=10)
+ax.invert_yaxis()
+ax.set_xlim(0, max_val * 1.28)
+
+for bar, val, color in zip(bars, top_owners["Estimated_Owners"], bar_colors):
+    ax.text(bar.get_width() + max_val * 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val/1_000_000:.1f}M",
+            va="center", ha="left", fontsize=9, fontweight="bold", color=color)
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "top_estimated_owners.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: top_estimated_owners.png")
+
+# -------------------------
+# GRAPH 7: Games Released Per Year  +  top game per year
+# — label shown as a tooltip-style box above each bar instead of rotated inside
+# -------------------------
+year_counts = df["Year"].dropna().astype(int).value_counts().sort_index()
+year_counts = year_counts[year_counts.index >= 2006]
+bar_colors  = [PALETTE[i % len(PALETTE)] for i in range(len(year_counts))]
+max_h       = year_counts.max()
+
+def top_game_for_year(year):
+    subset = df_rev[df_rev["Year"] == year]
+    name, score, _ = best_game(subset, name_len=18)
+    if name is None:
+        return ""
+    return f"{name}\n({score}%)"
+
+year_top_labels = {yr: top_game_for_year(yr) for yr in year_counts.index}
+
+fig, ax = plt.subplots(figsize=(16, 8))
+fig.patch.set_facecolor(BG_COLOR)
+# Extra top room for labels
+ax.set_ylim(0, max_h * 1.55)
+bars = ax.bar(year_counts.index.astype(str), year_counts.values,
+              color=bar_colors, edgecolor="none", width=0.7)
+ax.set_title("Top-Selling Games Released Per Year  (best-reviewed game shown above bar)", pad=15)
+ax.set_xlabel("Year", labelpad=10)
+ax.set_ylabel("Number of Games", labelpad=10)
+ax.tick_params(axis="x", rotation=40)
+
+for bar, (yr, val), color in zip(bars, year_counts.items(), bar_colors):
+    cx = bar.get_x() + bar.get_width() / 2
+    # count label just above bar
+    ax.text(cx, val + max_h * 0.01,
+            str(val), ha="center", va="bottom",
+            fontsize=8, fontweight="bold", color=color)
+    # top game label above count — only for years with enough games
+    label = year_top_labels.get(yr, "")
+    if label and val >= 15:
+        ax.text(cx, val + max_h * 0.09,
+                label,
+                ha="center", va="bottom",
+                fontsize=6.5, color=TEXT_COLOR,
+                linespacing=1.3)
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "releases_per_year.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: releases_per_year.png")
+
+# -------------------------
+# GRAPH 8: Discount % Distribution
+# -------------------------
+df_disc = df[df["Discount_Pct"] > 0].copy()
+
+fig, ax = plt.subplots(figsize=(12, 5))
+fig.patch.set_facecolor(BG_COLOR)
+n, bins_d, patches = ax.hist(df_disc["Discount_Pct"], bins=20, edgecolor="none")
+cmap2 = LinearSegmentedColormap.from_list("disc", ["#FFD93D", "#FF6B35", "#FF4757"])
+norm2 = (bins_d[:-1] - bins_d[:-1].min()) / (bins_d[:-1].max() - bins_d[:-1].min() + 1e-9)
+for patch, nv in zip(patches, norm2):
+    patch.set_facecolor(cmap2(nv))
+
+ax.set_title(f"Discount % Distribution — {len(df_disc):,} Discounted Games", pad=15)
+ax.set_xlabel("Discount (%)", labelpad=10)
+ax.set_ylabel("Number of Games", labelpad=10)
+ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.0f}%"))
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "discount_distribution.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: discount_distribution.png")
 
 print("\nAll graphs generated successfully!")
