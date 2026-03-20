@@ -12,12 +12,20 @@ import numpy as np
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Vibrant anime-inspired palette
 PALETTE = ["#FF6B9D", "#C44BFF", "#4BAAFF", "#FFD93D", "#6BCB77", "#FF6B35", "#00D9C0", "#FF4757"]
-BG_COLOR   = "#0D0D1A"   # deep dark navy background
-CARD_COLOR = "#161628"   # slightly lighter for axes
-GRID_COLOR = "#252540"   # subtle grid lines
-TEXT_COLOR = "#F0F0FF"   # near-white text
+BG_COLOR   = "#0D0D1A"
+CARD_COLOR = "#161628"
+GRID_COLOR = "#252540"
+TEXT_COLOR = "#F0F0FF"
+
+TYPE_COLORS = {
+    "Normal":   "#A8A878", "Fire":     "#F08030", "Water":    "#6890F0",
+    "Electric": "#F8D030", "Grass":    "#78C850", "Ice":      "#98D8D8",
+    "Fighting": "#C03028", "Poison":   "#A040A0", "Ground":   "#E0C068",
+    "Flying":   "#A890F0", "Psychic":  "#F85888", "Bug":      "#A8B820",
+    "Rock":     "#B8A038", "Ghost":    "#705898", "Dragon":   "#7038F8",
+    "Dark":     "#705848", "Steel":    "#B8B8D0", "Fairy":    "#EE99AC",
+}
 
 plt.rcParams.update({
     "figure.dpi": 150,
@@ -48,193 +56,222 @@ plt.rcParams.update({
 # -------------------------
 # LOAD & CLEAN DATA
 # -------------------------
-import html as html_lib
-
 df = pd.read_csv("dataset.csv")
+df["Name"]  = df["Name"].str.strip().str.title()
+df["Type1"] = df["Type1"].str.strip().str.title()
+df["Type2"] = df["Type2"].str.strip().str.title()
 
-# Fix 1: Decode HTML entities in names (e.g. &#039; -> ', &amp; -> &)
-df["name"] = df["name"].apply(html_lib.unescape)
+# Separate dual-type only (no None)
+df_dual = df.dropna(subset=["Type2"]).copy()
 
-# Fix 2: Convert episodes to numeric; "Unknown" becomes NaN
-df["episodes"] = pd.to_numeric(df["episodes"], errors="coerce")
-
-# Fix 3: Drop rows with no rating
-df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
-df["members"] = pd.to_numeric(df["members"], errors="coerce")
-df = df.dropna(subset=["rating", "members"])
-
-# Fix 4: Filter out low-member entries to avoid unreliable ratings
-#         (e.g. a 10/10 from only 13 votes skews Top 10 charts)
-df_rated = df[df["members"] >= 100].copy()
-
-print(f"Loaded {len(df):,} anime records ({len(df_rated):,} with 100+ members).")
+print(f"Loaded {len(df):,} Pokemon records ({len(df_dual):,} dual-type).")
 
 # -------------------------
-# GRAPH 1: Top 10 Anime by Rating
+# GRAPH 1: Type 1 Distribution
 # -------------------------
-top_rating = df_rated.sort_values("rating", ascending=False).head(10)
+type1_counts = df["Type1"].value_counts()
+colors = [TYPE_COLORS.get(t, "#888888") for t in type1_counts.index]
 
-fig, ax = plt.subplots(figsize=(12, 7))
+fig, ax = plt.subplots(figsize=(13, 6))
 fig.patch.set_facecolor(BG_COLOR)
+bars = ax.bar(type1_counts.index, type1_counts.values, color=colors, edgecolor="none", width=0.7)
+ax.set_title("Primary Type Distribution", pad=15)
+ax.set_xlabel("Type", labelpad=10)
+ax.set_ylabel("Count", labelpad=10)
+ax.tick_params(axis="x", rotation=45)
 
-# Cycle colors across bars for a rainbow effect
-bar_colors = [PALETTE[i % len(PALETTE)] for i in range(len(top_rating))]
-bars = ax.barh(top_rating["name"], top_rating["rating"],
-               color=bar_colors, edgecolor="none", height=0.65)
-
-ax.set_xlabel("Average Rating", labelpad=10)
-ax.set_title("Top 10 Anime by Rating", pad=18)
-ax.set_xlim(left=top_rating["rating"].min() - 0.3, right=10.6)
-ax.invert_yaxis()
-
-for bar, val, color in zip(bars, top_rating["rating"], bar_colors):
-    ax.text(bar.get_width() + 0.05, bar.get_y() + bar.get_height() / 2,
-            f"{val:.2f}", va="center", ha="left", fontsize=10,
+for bar, val, color in zip(bars, type1_counts.values, colors):
+    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
+            str(val), ha="center", va="bottom", fontsize=8,
             fontweight="bold", color=color)
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "top_rating.png"), facecolor=BG_COLOR)
+plt.savefig(os.path.join(OUTPUT_DIR, "type1_distribution.png"), facecolor=BG_COLOR)
 plt.close()
-print("Saved: top_rating.png")
+print("Saved: type1_distribution.png")
 
 # -------------------------
-# GRAPH 2: Members Distribution (log scale)
+# GRAPH 2: Dual-Type Heatmap (no None)
 # -------------------------
-fig, ax = plt.subplots(figsize=(11, 5))
+all_types = sorted(TYPE_COLORS.keys())
+matrix = pd.DataFrame(0, index=all_types, columns=all_types)
+
+for _, row in df_dual.iterrows():
+    t1, t2 = row["Type1"], row["Type2"]
+    if t1 in all_types and t2 in all_types:
+        matrix.loc[t1, t2] += 1
+
+fig, ax = plt.subplots(figsize=(13, 11))
 fig.patch.set_facecolor(BG_COLOR)
+ax.set_facecolor(BG_COLOR)
 
-n, bins, patches = ax.hist(df_rated["members"], bins=60, edgecolor="none", log=True)
-# Apply gradient colors across the bars
-cmap = LinearSegmentedColormap.from_list("anime", ["#4BAAFF", "#C44BFF", "#FF6B9D"])
-norm_vals = (bins[:-1] - bins[:-1].min()) / (bins[:-1].max() - bins[:-1].min())
-for patch, nv in zip(patches, norm_vals):
-    patch.set_facecolor(cmap(nv))
+cmap = LinearSegmentedColormap.from_list("poke", ["#161628", "#C44BFF", "#FF6B9D"])
+im = ax.imshow(matrix.values, cmap=cmap, aspect="auto")
 
-ax.set_title("Distribution of Members (log scale)", pad=15)
-ax.set_xlabel("Members", labelpad=10)
-ax.set_ylabel("Frequency (log)", labelpad=10)
-ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+ax.set_xticks(range(len(all_types)))
+ax.set_yticks(range(len(all_types)))
+ax.set_xticklabels(all_types, rotation=45, ha="right", fontsize=9)
+ax.set_yticklabels(all_types, fontsize=9)
+ax.set_title("Dual-Type Combination Heatmap", pad=15)
+ax.set_xlabel("Type 2", labelpad=10)
+ax.set_ylabel("Type 1", labelpad=10)
+
+for i in range(len(all_types)):
+    for j in range(len(all_types)):
+        val = matrix.values[i, j]
+        if val > 0:
+            ax.text(j, i, str(val), ha="center", va="center",
+                    fontsize=7, color="white", fontweight="bold")
+
+cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+cbar.ax.yaxis.set_tick_params(color=TEXT_COLOR)
+plt.setp(cbar.ax.yaxis.get_ticklabels(), color=TEXT_COLOR)
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "members_distribution.png"), facecolor=BG_COLOR)
+plt.savefig(os.path.join(OUTPUT_DIR, "dual_type_heatmap.png"), facecolor=BG_COLOR)
 plt.close()
-print("Saved: members_distribution.png")
+print("Saved: dual_type_heatmap.png")
 
 # -------------------------
-# GRAPH 3: Top 10 Genres
+# GRAPH 3: Top 15 Dual-Type Combos with Pokemon names
 # -------------------------
-genres = df_rated["genre"].dropna().str.split(", ")
-all_genres = [g.strip() for sublist in genres for g in sublist if g.strip()]
-genre_series = pd.Series(all_genres).value_counts().head(10)
+df_dual["type_combo"] = df_dual["Type1"] + " / " + df_dual["Type2"]
+combo_counts = df_dual["type_combo"].value_counts().head(15)
 
-# Find the top-rated anime for each genre
-def top_anime_for_genre(genre):
-    mask = df_rated["genre"].dropna().str.contains(genre, regex=False)
-    subset = df_rated.loc[mask.index[mask]].sort_values("rating", ascending=False)
-    if subset.empty:
-        return ""
-    name = subset.iloc[0]["name"]
-    rating = subset.iloc[0]["rating"]
-    if len(name) > 22:
-        name = name[:20] + "..."
-    return f"* {name} ({rating:.2f})"
+# Get up to 3 example Pokemon names per combo
+def get_examples(combo, n=3):
+    t1, t2 = combo.split(" / ")
+    names = df_dual[(df_dual["Type1"] == t1) & (df_dual["Type2"] == t2)]["Name"].tolist()
+    sample = names[:n]
+    label = ", ".join(sample)
+    if len(names) > n:
+        label += f" +{len(names) - n} more"
+    return label
 
-top_labels = [top_anime_for_genre(g) for g in genre_series.index]
+example_labels = [get_examples(c) for c in combo_counts.index]
+bar_colors = [PALETTE[i % len(PALETTE)] for i in range(len(combo_counts))]
 
-fig, ax = plt.subplots(figsize=(13, 7))
+fig, ax = plt.subplots(figsize=(14, 8))
 fig.patch.set_facecolor(BG_COLOR)
+bars = ax.barh(combo_counts.index, combo_counts.values,
+               color=bar_colors, edgecolor="none", height=0.65)
+ax.set_title("Top 15 Dual-Type Combinations (no single-type)", pad=15)
+ax.set_xlabel("Count", labelpad=10)
+ax.invert_yaxis()
 
-bar_colors = [PALETTE[i % len(PALETTE)] for i in range(len(genre_series))]
-bars = genre_series.plot(kind="bar", ax=ax, color=bar_colors, edgecolor="none", width=0.7)
-ax.set_title("Top 10 Genres", pad=15)
-ax.set_xlabel("Genre", labelpad=10)
-ax.set_ylabel("Count", labelpad=10)
-ax.tick_params(axis="x", rotation=30)
+# Set x limit with room for labels
+ax.set_xlim(0, combo_counts.values.max() + 14)
 
-for p, color, label in zip(ax.patches, bar_colors, top_labels):
-    # Count label at the top of bar
-    ax.annotate(f"{int(p.get_height()):,}",
-                (p.get_x() + p.get_width() / 2, p.get_height()),
-                ha="center", va="bottom", fontsize=9,
-                fontweight="bold", color=color)
-    # Top anime label inside the bar
-    bar_height = p.get_height()
-    if bar_height > 80:
-        ax.annotate(label,
-                    (p.get_x() + p.get_width() / 2, bar_height * 0.5),
-                    ha="center", va="center", fontsize=7.5,
-                    color="white", fontweight="bold",
-                    rotation=90)
+for bar, val, color, examples in zip(bars, combo_counts.values, bar_colors, example_labels):
+    # Count on the right of bar
+    ax.text(bar.get_width() + 0.4, bar.get_y() + bar.get_height() / 2,
+            f"{val}  |  {examples}",
+            va="center", ha="left", fontsize=8,
+            color=TEXT_COLOR)
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "top_genres.png"), facecolor=BG_COLOR)
+plt.savefig(os.path.join(OUTPUT_DIR, "top_type_combos.png"), facecolor=BG_COLOR)
 plt.close()
-print("Saved: top_genres.png")
+print("Saved: top_type_combos.png")
 
 # -------------------------
-# GRAPH 4: Anime Type Distribution
+# GRAPH 4: Evolution Coverage Pie
 # -------------------------
-if "type" in df_rated.columns:
-    type_counts = df_rated["type"].dropna().value_counts()
+has_evolution = df["Evolution"].notna().sum()
+no_evolution  = df["Evolution"].isna().sum()
+evo_labels    = ["Has Evolution", "Final / No Evolution"]
+evo_values    = [has_evolution, no_evolution]
+evo_colors    = ["#C44BFF", "#FF6B9D"]
 
-    fig, ax = plt.subplots(figsize=(8, 8))
-    fig.patch.set_facecolor(BG_COLOR)
-    ax.set_facecolor(BG_COLOR)
-
-    wedges, texts, autotexts = ax.pie(
-        type_counts,
-        labels=type_counts.index,
-        autopct="%1.1f%%",
-        colors=PALETTE[:len(type_counts)],
-        startangle=140,
-        pctdistance=0.78,
-        wedgeprops=dict(edgecolor=BG_COLOR, linewidth=3),
-        textprops=dict(color=TEXT_COLOR, fontsize=11),
-    )
-    for at, color in zip(autotexts, PALETTE):
-        at.set_fontsize(10)
-        at.set_fontweight("bold")
-        at.set_color(BG_COLOR)
-
-    ax.set_title("Anime by Type", pad=20, color=TEXT_COLOR)
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, "type_distribution.png"), facecolor=BG_COLOR)
-    plt.close()
-    print("Saved: type_distribution.png")
-
-# -------------------------
-# GRAPH 5: Rating vs Members (scatter)
-# -------------------------
-fig, ax = plt.subplots(figsize=(11, 6))
+fig, ax = plt.subplots(figsize=(8, 8))
 fig.patch.set_facecolor(BG_COLOR)
+ax.set_facecolor(BG_COLOR)
 
-ax.scatter(
-    df_rated["rating"],
-    df_rated["members"],
-    alpha=0.35,
-    s=18,
-    c=PALETTE[0],
-    edgecolors="none",
+wedges, texts, autotexts = ax.pie(
+    evo_values,
+    labels=evo_labels,
+    autopct="%1.1f%%",
+    colors=evo_colors,
+    startangle=140,
+    pctdistance=0.78,
+    wedgeprops=dict(edgecolor=BG_COLOR, linewidth=3),
+    textprops=dict(color=TEXT_COLOR, fontsize=12),
 )
-ax.set_yscale("log")
-ax.set_xlabel("Rating", labelpad=10)
-ax.set_ylabel("Members (log scale)", labelpad=10)
-ax.set_title("Rating vs Members", pad=15)
-ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+for at in autotexts:
+    at.set_fontsize(11)
+    at.set_fontweight("bold")
+    at.set_color(BG_COLOR)
 
-# Trend line (log space)
-valid = df_rated[["rating", "members"]].dropna()
-log_members = np.log10(valid["members"])
-z = np.polyfit(valid["rating"], log_members, 1)
-p = np.poly1d(z)
-xs = np.linspace(valid["rating"].min(), valid["rating"].max(), 200)
-ax.plot(xs, 10 ** p(xs), color=PALETTE[2], linewidth=2.5,
-        linestyle="--", label="Trend", alpha=0.9)
-ax.legend(fontsize=10)
+ax.set_title("Evolution Coverage", pad=20, color=TEXT_COLOR)
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "evolution_coverage.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: evolution_coverage.png")
+
+# -------------------------
+# GRAPH 5: Single-type vs Dual-type per Type1
+# -------------------------
+df["is_dual"] = df["Type2"].notna()
+dual_breakdown = df.groupby("Type1")["is_dual"].agg(
+    Dual=lambda x: x.sum(),
+    Single=lambda x: (~x).sum()
+).reindex(type1_counts.index)
+
+fig, ax = plt.subplots(figsize=(13, 6))
+fig.patch.set_facecolor(BG_COLOR)
+
+x = np.arange(len(dual_breakdown))
+w = 0.4
+ax.bar(x - w/2, dual_breakdown["Single"], width=w, label="Single-type",
+       color="#4BAAFF", edgecolor="none")
+ax.bar(x + w/2, dual_breakdown["Dual"],   width=w, label="Dual-type",
+       color="#FF6B9D", edgecolor="none")
+
+ax.set_title("Single-type vs Dual-type per Primary Type", pad=15)
+ax.set_xlabel("Type 1", labelpad=10)
+ax.set_ylabel("Count", labelpad=10)
+ax.set_xticks(x)
+ax.set_xticklabels(dual_breakdown.index, rotation=45, ha="right", fontsize=9)
+ax.legend()
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, "rating_vs_members.png"), facecolor=BG_COLOR)
+plt.savefig(os.path.join(OUTPUT_DIR, "single_vs_dual.png"), facecolor=BG_COLOR)
 plt.close()
-print("Saved: rating_vs_members.png")
+print("Saved: single_vs_dual.png")
+
+# -------------------------
+# GRAPH 6: Rarest Types (bottom 5) with example Pokemon
+# -------------------------
+rare_types  = type1_counts.tail(5)
+rare_colors = [TYPE_COLORS.get(t, "#888888") for t in rare_types.index]
+
+# Get up to 4 example names per rare type
+def rare_examples(type_name, n=4):
+    names = df[df["Type1"] == type_name]["Name"].tolist()
+    sample = names[:n]
+    label = ", ".join(sample)
+    if len(names) > n:
+        label += f" +{len(names) - n} more"
+    return label
+
+fig, ax = plt.subplots(figsize=(12, 5))
+fig.patch.set_facecolor(BG_COLOR)
+bars = ax.barh(rare_types.index, rare_types.values,
+               color=rare_colors, edgecolor="none", height=0.55)
+ax.set_title("5 Rarest Primary Types", pad=15)
+ax.set_xlabel("Count", labelpad=10)
+ax.invert_yaxis()
+ax.set_xlim(0, rare_types.values.max() + 20)
+
+for bar, val, color, t in zip(bars, rare_types.values, rare_colors, rare_types.index):
+    examples = rare_examples(t)
+    ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height() / 2,
+            f"{val}  |  {examples}",
+            va="center", ha="left", fontsize=8.5, color=TEXT_COLOR)
+
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "rarest_types.png"), facecolor=BG_COLOR)
+plt.close()
+print("Saved: rarest_types.png")
 
 print("\nAll graphs generated successfully!")
