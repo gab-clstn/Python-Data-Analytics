@@ -3,34 +3,34 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
-# Create directory for output if it doesn't exist
 os.makedirs('output', exist_ok=True)
+df = pd.read_csv('dataset.csv')
 
-# Load data
-df = pd.read_csv('bulacan_pop.csv')
-
-# Set aesthetic style
-sns.set_theme(style="whitegrid")
-
-# Graph 1: Bar Chart of Population
+# Graph 1: Bar Chart - 2020 Population per Region
 plt.figure(figsize=(10, 6))
-sns.barplot(x='Population', y='City_Municipality', data=df.sort_values('Population', ascending=False), palette='viridis')
-plt.title('Top Populated Areas in Bulacan (2020)')
-plt.savefig('output/population_bar.png')
+sns.barplot(data=df, x='Region', y='2020', palette='magma')
+plt.title('Philippine Population by Region (2020)')
+plt.savefig('output/population_2020.png')
 plt.close()
 
-# Graph 2: Scatter Plot (Land Area vs Population)
+# Graph 2: Line Plot - Population Growth Trend (DevOps requirement for trend analysis)
+years = ['2000', '2010', '2015', '2020']
+trend_df = df.set_index('Region')[years].T
 plt.figure(figsize=(10, 6))
-sns.scatterplot(x='Land_Area_km2', y='Population', size='Density_per_km2', data=df, hue='City_Municipality', legend=False)
-plt.title('Land Area vs Population Size')
-plt.savefig('output/area_vs_pop_scatter.png')
+trend_df.plot(marker='o')
+plt.title('Population Movement (2000-2020)')
+plt.xlabel('Census Year')
+plt.ylabel('Population Count')
+plt.legend(title='Region', bbox_to_anchor=(1.05, 1))
+plt.tight_layout()
+plt.savefig('output/growth_trend.png')
 plt.close()
 
-# Graph 3: Box Plot of Population Density
-plt.figure(figsize=(8, 4))
-sns.boxplot(x=df['Density_per_km2'], color='skyblue')
-plt.title('Distribution of Population Density in Bulacan LGUs')
-plt.savefig('output/density_boxplot.png')
+# Graph 3: Pie Chart - 2020 Distribution
+plt.figure(figsize=(8, 8))
+plt.pie(df['2020'], labels=df['Region'], autopct='%1.1f%%', startangle=140)
+plt.title('Regional Population Share (2020)')
+plt.savefig('output/population_share.png')
 plt.close()
 
-print("Analytics complete. Check the /output folder for graphs!")
+print("Analytics complete using Kaggle dataset. Files saved to /output")
