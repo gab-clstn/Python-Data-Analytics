@@ -5,9 +5,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY dataset.csv .
+COPY analytics.py .
 
 ENV OUTPUT_DIR=/app/output
-VOLUME ["/app/output"]
 
-CMD ["python", "analytics.py"]
+CMD ["sh", "-c", "python analytics.py && tail -f /dev/null"]
